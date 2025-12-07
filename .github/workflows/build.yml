@@ -1,0 +1,73 @@
+name: Build
+
+on:
+  push:
+    branches: [ "main" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build:
+    name: Build on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ ubuntu-latest, windows-latest, macos-latest ]
+        include:
+        - os: ubuntu-latest
+          artifact_name: 2fa-linux
+          binary_name: 2fa
+        - os: windows-latest
+          artifact_name: 2fa-windows
+          binary_name: 2fa.exe
+        - os: macos-latest
+          artifact_name: 2fa-macos
+          binary_name: 2fa
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Compile (Linux/macOS)
+      if: runner.os != 'Windows'
+      run: |
+        gcc -O3 -o ${{ matrix.binary_name }} 2fa.c
+
+    - name: Setup MSVC (Windows)
+      if: runner.os == 'Windows'
+      uses: ilammy/msvc-dev-cmd@v1
+
+    - name: Compile (Windows)
+      if: runner.os == 'Windows'
+      run: |
+        cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.binary_name }}
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/')
+    steps:
+    - uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Rename artifacts
+      run: |
+        mv artifacts/2fa-linux/2fa 2fa-linux
+        mv artifacts/2fa-windows/2fa.exe 2fa-windows.exe
+        mv artifacts/2fa-macos/2fa 2fa-macos
+        chmod +x 2fa-linux 2fa-macos
+
+    - name: Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: |
+          2fa-linux
+          2fa-windows.exe
+          2fa-macos
