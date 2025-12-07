@@ -36,13 +36,13 @@ jobs:
           platform: windows-amd64
           artifact_name: 2fa-windows-amd64
           binary_name: 2fa.exe
-          arch: x64
+          vcvars_arch: x64
         # Windows ARM64
         - os: windows-latest
           platform: windows-arm64
           artifact_name: 2fa-windows-arm64
           binary_name: 2fa.exe
-          arch: arm64
+          vcvars_arch: x64_arm64
         # macOS x64
         - os: macos-latest
           platform: macos-amd64
@@ -80,7 +80,7 @@ jobs:
     - name: Compile (Windows)
       if: startsWith(matrix.platform, 'windows-')
       run: |
-        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch }}
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vcvars_arch }}
         cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
       shell: cmd
 
