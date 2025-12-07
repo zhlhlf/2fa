@@ -1,5 +1,8 @@
 name: Build
 
+permissions:
+  contents: write
+
 on:
   push:
     branches: [ "main" ]
@@ -9,38 +12,77 @@ on:
 
 jobs:
   build:
-    name: Build on ${{ matrix.os }}
+    name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: [ ubuntu-latest, windows-latest, macos-latest ]
         include:
+        # Linux x64
         - os: ubuntu-latest
-          artifact_name: 2fa-linux
+          platform: linux-amd64
+          artifact_name: 2fa-linux-amd64
           binary_name: 2fa
+          cc: gcc
+          cflags: -O3
+        # Linux ARM64
+        - os: ubuntu-latest
+          platform: linux-arm64
+          artifact_name: 2fa-linux-arm64
+          binary_name: 2fa
+          cc: aarch64-linux-gnu-gcc
+          cflags: -O3 -static
+        # Windows x64
         - os: windows-latest
-          artifact_name: 2fa-windows
+          platform: windows-amd64
+          artifact_name: 2fa-windows-amd64
           binary_name: 2fa.exe
+          vcvars_arch: x64
+        # Windows ARM64
+        - os: windows-latest
+          platform: windows-arm64
+          artifact_name: 2fa-windows-arm64
+          binary_name: 2fa.exe
+          vcvars_arch: x64_arm64
+        # macOS x64
         - os: macos-latest
-          artifact_name: 2fa-macos
+          platform: macos-amd64
+          artifact_name: 2fa-macos-amd64
           binary_name: 2fa
+          cc: clang
+          cflags: -O3 -arch x86_64
+        # macOS ARM64 (Apple Silicon)
+        - os: macos-latest
+          platform: macos-arm64
+          artifact_name: 2fa-macos-arm64
+          binary_name: 2fa
+          cc: clang
+          cflags: -O3 -arch arm64
 
     steps:
     - uses: actions/checkout@v4
 
-    - name: Compile (Linux/macOS)
-      if: runner.os != 'Windows'
+    - name: Install cross-compiler (Linux ARM64)
+      if: matrix.platform == 'linux-arm64'
       run: |
-        gcc -O3 -o ${{ matrix.binary_name }} 2fa.c
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu
 
-    - name: Setup MSVC (Windows)
-      if: runner.os == 'Windows'
-      uses: ilammy/msvc-dev-cmd@v1
+    - name: Compile (Linux)
+      if: startsWith(matrix.platform, 'linux-')
+      run: |
+        ${{ matrix.cc }} ${{ matrix.cflags }} -o ${{ matrix.binary_name }} 2fa.c
+
+    - name: Compile (macOS)
+      if: startsWith(matrix.platform, 'macos-')
+      run: |
+        ${{ matrix.cc }} ${{ matrix.cflags }} -o ${{ matrix.binary_name }} 2fa.c
 
     - name: Compile (Windows)
-      if: runner.os == 'Windows'
+      if: startsWith(matrix.platform, 'windows-')
       run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.vcvars_arch }}
         cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
+      shell: cmd
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
@@ -59,15 +101,21 @@ jobs:
 
     - name: Rename artifacts
       run: |
-        mv artifacts/2fa-linux/2fa 2fa-linux
-        mv artifacts/2fa-windows/2fa.exe 2fa-windows.exe
-        mv artifacts/2fa-macos/2fa 2fa-macos
-        chmod +x 2fa-linux 2fa-macos
+        mv artifacts/2fa-linux-amd64/2fa 2fa-linux-amd64
+        mv artifacts/2fa-linux-arm64/2fa 2fa-linux-arm64
+        mv artifacts/2fa-windows-amd64/2fa.exe 2fa-windows-amd64.exe
+        mv artifacts/2fa-windows-arm64/2fa.exe 2fa-windows-arm64.exe
+        mv artifacts/2fa-macos-amd64/2fa 2fa-macos-amd64
+        mv artifacts/2fa-macos-arm64/2fa 2fa-macos-arm64
+        chmod +x 2fa-linux-amd64 2fa-linux-arm64 2fa-macos-amd64 2fa-macos-arm64
 
     - name: Release
       uses: softprops/action-gh-release@v2
       with:
         files: |
-          2fa-linux
-          2fa-windows.exe
-          2fa-macos
+          2fa-linux-amd64
+          2fa-linux-arm64
+          2fa-windows-amd64.exe
+          2fa-windows-arm64.exe
+          2fa-macos-amd64
+          2fa-macos-arm64
