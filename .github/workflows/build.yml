@@ -77,16 +77,12 @@ jobs:
       run: |
         ${{ matrix.cc }} ${{ matrix.cflags }} -o ${{ matrix.binary_name }} 2fa.c
 
-    - name: Setup MSVC (Windows)
-      if: startsWith(matrix.platform, 'windows-')
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: ${{ matrix.arch }}
-
     - name: Compile (Windows)
       if: startsWith(matrix.platform, 'windows-')
+      run: |
+        call "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvarsall.bat" ${{ matrix.arch }}
+        cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
       shell: cmd
-      run: cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
