@@ -85,8 +85,8 @@ jobs:
 
     - name: Compile (Windows)
       if: startsWith(matrix.platform, 'windows-')
-      run: |
-        cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
+      shell: cmd
+      run: cl /O2 /Fe:${{ matrix.binary_name }} 2fa.c
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
