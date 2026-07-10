@@ -37,19 +37,14 @@ jobs:
           platform: windows-amd64
           artifact_name: 2fa-windows-amd64
           binary_name: 2fa.exe
-          cc: gcc
-          cflags: -O3 -static
-          msystem: MINGW64
-          msys_packages: mingw-w64-x86_64-gcc
+          msvc_arch: x64
         # Windows ARM64
+        # windows-latest is x64, so ARM64 must use the x64_arm64 cross toolchain.
         - os: windows-latest
           platform: windows-arm64
           artifact_name: 2fa-windows-arm64
           binary_name: 2fa.exe
-          cc: clang
-          cflags: -O3 -static
-          msystem: CLANGARM64
-          msys_packages: mingw-w64-clang-aarch64-clang
+          msvc_arch: x64_arm64
         # macOS x64
         - os: macos-latest
           platform: macos-amd64
@@ -74,15 +69,11 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu
 
-    - name: Setup MSYS2 (Windows)
+    - name: Setup MSVC (Windows)
       if: startsWith(matrix.platform, 'windows-')
-      uses: msys2/setup-msys2@v2
+      uses: ilammy/msvc-dev-cmd@v1
       with:
-        msystem: ${{ matrix.msystem }}
-        update: true
-        install: >-
-          base-devel
-          ${{ matrix.msys_packages }}
+        arch: ${{ matrix.msvc_arch }}
 
     - name: Compile (Linux)
       if: startsWith(matrix.platform, 'linux-')
@@ -96,11 +87,14 @@ jobs:
 
     - name: Compile (Windows)
       if: startsWith(matrix.platform, 'windows-')
-      shell: msys2 {0}
+      shell: cmd
       run: |
-        set -euo pipefail
-        ${{ matrix.cc }} ${{ matrix.cflags }} -o "${{ matrix.binary_name }}" 2fa.c
-        ls -la "${{ matrix.binary_name }}"
+        where cl
+        cl /nologo /O2 /utf-8 /Fe:%BINARY_NAME% 2fa.c
+        if errorlevel 1 exit /b 1
+        dir %BINARY_NAME%
+      env:
+        BINARY_NAME: ${{ matrix.binary_name }}
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
