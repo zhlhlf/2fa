@@ -1,4 +1,4 @@
-﻿name: Build
+name: Build
 
 permissions:
   contents: write
@@ -15,6 +15,7 @@ jobs:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
         include:
         # Linux x64
@@ -36,13 +37,19 @@ jobs:
           platform: windows-amd64
           artifact_name: 2fa-windows-amd64
           binary_name: 2fa.exe
-          msvc_arch: x64
+          cc: gcc
+          cflags: -O3 -static
+          msystem: MINGW64
+          msys_packages: mingw-w64-x86_64-gcc
         # Windows ARM64
         - os: windows-latest
           platform: windows-arm64
           artifact_name: 2fa-windows-arm64
           binary_name: 2fa.exe
-          msvc_arch: arm64
+          cc: clang
+          cflags: -O3 -static
+          msystem: CLANGARM64
+          msys_packages: mingw-w64-clang-aarch64-clang
         # macOS x64
         - os: macos-latest
           platform: macos-amd64
@@ -67,6 +74,16 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y gcc-aarch64-linux-gnu
 
+    - name: Setup MSYS2 (Windows)
+      if: startsWith(matrix.platform, 'windows-')
+      uses: msys2/setup-msys2@v2
+      with:
+        msystem: ${{ matrix.msystem }}
+        update: true
+        install: >-
+          base-devel
+          ${{ matrix.msys_packages }}
+
     - name: Compile (Linux)
       if: startsWith(matrix.platform, 'linux-')
       run: |
@@ -77,16 +94,13 @@ jobs:
       run: |
         ${{ matrix.cc }} ${{ matrix.cflags }} -o ${{ matrix.binary_name }} 2fa.c
 
-    - name: Setup MSVC
-      if: startsWith(matrix.platform, 'windows-')
-      uses: ilammy/msvc-dev-cmd@v1
-      with:
-        arch: ${{ matrix.msvc_arch }}
-
     - name: Compile (Windows)
       if: startsWith(matrix.platform, 'windows-')
-      run: cl /O2 /utf-8 /Fe:${{ matrix.binary_name }} 2fa.c
-      shell: cmd
+      shell: msys2 {0}
+      run: |
+        set -euo pipefail
+        ${{ matrix.cc }} ${{ matrix.cflags }} -o "${{ matrix.binary_name }}" 2fa.c
+        ls -la "${{ matrix.binary_name }}"
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
