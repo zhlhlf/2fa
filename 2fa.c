@@ -12,6 +12,9 @@
 
 #ifdef _WIN32
 #include <windows.h>
+#ifndef ENABLE_VIRTUAL_TERMINAL_PROCESSING
+#define ENABLE_VIRTUAL_TERMINAL_PROCESSING 0x0004
+#endif
 #define PATH_SEPARATOR "\\"
 #else
 #include <unistd.h>
@@ -22,6 +25,24 @@
 #define MAX_SECRET_LEN 128
 #define MAX_NAME_LEN 256
 #define FILE_NAME ".2fa"
+
+// --- Console (Windows UTF-8 + ANSI color) ---
+
+void console_init(void) {
+#ifdef _WIN32
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
+
+    HANDLE hOut = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (hOut != INVALID_HANDLE_VALUE) {
+        DWORD mode = 0;
+        if (GetConsoleMode(hOut, &mode)) {
+            mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+            SetConsoleMode(hOut, mode);
+        }
+    }
+#endif
+}
 
 // --- SHA1 Implementation ---
 
@@ -194,14 +215,15 @@ void url_decode(char *dst, const char *src) {
 }
 
 // --- TOTP Generation ---
+// step_offset: 0 = current window, 1 = next 30s window
 
-uint32_t generate_totp(const char *secret_base32) {
+uint32_t generate_totp(const char *secret_base32, int step_offset) {
     unsigned char key[128];
     int key_len = base32_decode(secret_base32, key);
     if (key_len < 0) return 0;
 
     time_t t = time(NULL);
-    uint64_t time_step = t / 30;
+    uint64_t time_step = (uint64_t)(t / 30) + (uint64_t)step_offset;
     unsigned char msg[8];
     for (int i = 7; i >= 0; i--) {
         msg[i] = (unsigned char)(time_step & 0xFF);
@@ -257,7 +279,9 @@ int load_accounts(Account *accounts, int max_accounts) {
         if (sep) {
             *sep = '\0';
             strncpy(accounts[count].name, line, MAX_NAME_LEN - 1);
+            accounts[count].name[MAX_NAME_LEN - 1] = 0;
             strncpy(accounts[count].secret, sep + 1, MAX_SECRET_LEN - 1);
+            accounts[count].secret[MAX_SECRET_LEN - 1] = 0;
             count++;
         }
     }
@@ -277,6 +301,44 @@ void save_accounts(Account *accounts, int count) {
         fprintf(f, "%s|%s\n", accounts[i].name, accounts[i].secret);
     }
     fclose(f);
+}
+
+// --- Display helpers ---
+
+int utf8_disp_width(const char *s) {
+    int width = 0;
+    const unsigned char *p = (const unsigned char *)s;
+    while (*p) {
+        if (*p < 0x80) { width += 1; p += 1; }
+        else if ((*p & 0xE0) == 0xC0) { width += 1; p += 2; }
+        else if ((*p & 0xF0) == 0xE0) { width += 2; p += 3; }
+        else if ((*p & 0xF8) == 0xF0) { width += 2; p += 4; }
+        else { width += 1; p += 1; }
+    }
+    return width;
+}
+
+void print_padded(const char *s, int col_width) {
+    int w = utf8_disp_width(s);
+    fputs(s, stdout);
+    while (w < col_width) { putchar(32); w++; }
+}
+
+void print_repeat(char c, int n) {
+    for (int i = 0; i < n; i++) putchar(c);
+}
+
+void print_simple_border(int name_w) {
+    putchar(43); print_repeat(45, 4); putchar(43);
+    print_repeat(45, name_w + 2); putchar(43); putchar(10);
+}
+
+void print_table_border(int name_w) {
+    putchar(43); print_repeat(45, 4); putchar(43);
+    print_repeat(45, name_w + 2); putchar(43);
+    print_repeat(45, 8); putchar(43);
+    print_repeat(45, 8); putchar(43);
+    print_repeat(45, 6); putchar(43); putchar(10);
 }
 
 // --- Main Logic ---
@@ -370,9 +432,23 @@ void delete_account() {
         return;
     }
 
+    int name_w = 4;
     for (int i = 0; i < count; i++) {
-        printf("%d. %s\n", i + 1, accounts[i].name);
+        int w = utf8_disp_width(accounts[i].name);
+        if (w > name_w) name_w = w;
     }
+    if (name_w > 40) name_w = 40;
+    print_simple_border(name_w);
+    printf("| %2s | ", "#");
+    print_padded("Name", name_w);
+    printf(" |\n");
+    print_simple_border(name_w);
+    for (int i = 0; i < count; i++) {
+        printf("| %2d | ", i + 1);
+        print_padded(accounts[i].name, name_w);
+        printf(" |\n");
+    }
+    print_simple_border(name_w);
 
     int choice;
     printf("请输入要删除的序号: ");
@@ -396,26 +472,43 @@ void list_accounts(int specific_index) {
         printf("No accounts found.\n");
         return;
     }
-
+    if (specific_index > 0 && specific_index > count) {
+        printf("Index out of range.\n");
+        return;
+    }
     time_t t = time(NULL);
-    int remaining = 30 - (t % 30);
-
+    int remaining = 30 - (int)(t % 30);
+    int name_w = 4;
     if (specific_index > 0) {
-        if (specific_index <= count) {
-            uint32_t code = generate_totp(accounts[specific_index - 1].secret);
-            printf("\033[0;32m%06u\033[0m (%ds)\n", code, remaining);
-        } else {
-            printf("Index out of range.\n");
-        }
+        int w = utf8_disp_width(accounts[specific_index - 1].name);
+        if (w > name_w) name_w = w;
     } else {
         for (int i = 0; i < count; i++) {
-            uint32_t code = generate_totp(accounts[i].secret);
-            printf("%d. %s: \033[0;32m%06u\033[0m (%ds)\n", i + 1, accounts[i].name, code, remaining);
+            int w = utf8_disp_width(accounts[i].name);
+            if (w > name_w) name_w = w;
         }
     }
+    if (name_w > 40) name_w = 40;
+    print_table_border(name_w);
+    printf("| %2s | ", "#");
+    print_padded("Name", name_w);
+    printf(" |  Code  |  Next  | Left |\n");
+    print_table_border(name_w);
+    int from = (specific_index > 0) ? specific_index - 1 : 0;
+    int to = (specific_index > 0) ? specific_index : count;
+    for (int i = from; i < to; i++) {
+        uint32_t code = generate_totp(accounts[i].secret, 0);
+        uint32_t next = generate_totp(accounts[i].secret, 1);
+        printf("| %2d | ", i + 1);
+        print_padded(accounts[i].name, name_w);
+        printf(" | \033[0;32m%06u\033[0m | \033[0;36m%06u\033[0m | %3ds |\n", code, next, remaining);
+    }
+    print_table_border(name_w);
 }
 
 int main(int argc, char *argv[]) {
+    console_init();
+
     if (argc < 2) {
         list_accounts(0);
     } else if (strcmp(argv[1], "a") == 0) {
