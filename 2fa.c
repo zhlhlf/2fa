@@ -188,7 +188,30 @@ int base32_decode(const char *encoded, unsigned char *result) {
     return count;
 }
 
-// --- URL Decoding ---
+// --- URL Encoding/Decoding ---
+
+int is_url_unreserved(char c) {
+    return isalnum((unsigned char)c) || c == '-' || c == '.' || c == '_' || c == '~';
+}
+
+void url_encode(char *dst, size_t dst_size, const char *src) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t pos = 0;
+
+    while (*src && pos + 1 < dst_size) {
+        unsigned char c = (unsigned char)*src++;
+        if (is_url_unreserved((char)c)) {
+            dst[pos++] = (char)c;
+        } else if (pos + 3 < dst_size) {
+            dst[pos++] = '%';
+            dst[pos++] = hex[c >> 4];
+            dst[pos++] = hex[c & 0x0F];
+        } else {
+            break;
+        }
+    }
+    dst[pos] = '\0';
+}
 
 void url_decode(char *dst, const char *src) {
     char a, b;
@@ -506,6 +529,21 @@ void list_accounts(int specific_index) {
     print_table_border(name_w);
 }
 
+void export_accounts(void) {
+    Account accounts[100];
+    int count = load_accounts(accounts, 100);
+    if (count == 0) {
+        printf("No accounts found.\n");
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        char label[MAX_NAME_LEN * 3];
+        url_encode(label, sizeof(label), accounts[i].name);
+        printf("otpauth://totp/%s?secret=%s&issuer=2fa\n", label, accounts[i].secret);
+    }
+}
+
 int main(int argc, char *argv[]) {
     console_init();
 
@@ -515,6 +553,8 @@ int main(int argc, char *argv[]) {
         add_account();
     } else if (strcmp(argv[1], "d") == 0) {
         delete_account();
+    } else if (strcmp(argv[1], "e") == 0) {
+        export_accounts();
     } else {
         int idx = atoi(argv[1]);
         if (idx > 0) {
@@ -524,6 +564,7 @@ int main(int argc, char *argv[]) {
             printf("  2fa        Show all codes\n");
             printf("  2fa a      Add account\n");
             printf("  2fa d      Delete account\n");
+            printf("  2fa e      Export all accounts as otpauth URLs\n");
             printf("  2fa <num>  Show code for specific account\n");
             printf("\nCreated by zhlhlf (zhlhlf@gmail.com)\n");
         }
