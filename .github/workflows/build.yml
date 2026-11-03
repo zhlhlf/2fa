@@ -24,14 +24,14 @@ jobs:
           artifact_name: 2fa-linux-amd64
           binary_name: 2fa
           cc: gcc
-          cflags: -O3
+          cflags: -O3 -static -s
         # Linux ARM64
         - os: ubuntu-latest
           platform: linux-arm64
           artifact_name: 2fa-linux-arm64
           binary_name: 2fa
           cc: aarch64-linux-gnu-gcc
-          cflags: -O3 -static
+          cflags: -O3 -static -s
         # Windows x64
         - os: windows-latest
           platform: windows-amd64
@@ -90,9 +90,33 @@ jobs:
       shell: cmd
       run: |
         where cl
-        cl /nologo /O2 /utf-8 /Fe:%BINARY_NAME% 2fa.c
+        cl /nologo /O2 /utf-8 /MT /Fe:%BINARY_NAME% 2fa.c
         if errorlevel 1 exit /b 1
         dir %BINARY_NAME%
+      env:
+        BINARY_NAME: ${{ matrix.binary_name }}
+
+    - name: Verify no dynamic dependencies (Linux)
+      if: startsWith(matrix.platform, 'linux-')
+      run: |
+        file $BINARY_NAME
+        if readelf -d $BINARY_NAME 2>/dev/null | grep -q '(NEEDED)'; then
+          echo Error: $BINARY_NAME still has shared library dependencies
+          readelf -d $BINARY_NAME
+          exit 1
+        fi
+      env:
+        BINARY_NAME: ${{ matrix.binary_name }}
+
+    - name: Verify static runtime (Windows)
+      if: startsWith(matrix.platform, 'windows-')
+      shell: pwsh
+      run: |
+        $deps = & dumpbin /nologo /dependents $env:BINARY_NAME
+        $deps
+        if ($deps -match 'VCRUNTIME|MSVCP|ucrtbase|api-ms-win-crt') {
+          throw 'Dynamic MSVC runtime detected'
+        }
       env:
         BINARY_NAME: ${{ matrix.binary_name }}
 
